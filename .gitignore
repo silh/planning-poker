@@ -1,0 +1,14 @@
+build/
+.vertx/
+.idea/
+*.iws
+/out/
+.idea_modules/
+*.iml
+modules.xml
+.idea/misc.xml
+*.ipr
+*.DS_Store
+### Gradle ###
+.gradle
+/buildTool/
