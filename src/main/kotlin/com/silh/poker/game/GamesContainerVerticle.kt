@@ -3,6 +3,7 @@ package com.silh.poker.game
 import io.vertx.core.buffer.Buffer
 import io.vertx.core.eventbus.Message
 import io.vertx.core.json.Json
+import io.vertx.core.logging.LoggerFactory
 import io.vertx.kotlin.coroutines.CoroutineVerticle
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -17,7 +18,10 @@ const val STOP_GAME_EVENT = "stop-game"
  * @see STOP_GAME_EVENT - expects Long which represents ID of the game that should be deleted,
  * returns "true" if game was successfully deleted, "false" if there was no game with such ID.
  */
-class GamesContainer : CoroutineVerticle() {
+class GamesContainerVerticle : CoroutineVerticle() {
+
+  private val log = LoggerFactory.getLogger(GamesContainerVerticle::class.java)
+
   private val games = ConcurrentHashMap<Long, Game>()
   private val idGenerator = AtomicLong()
 
@@ -25,6 +29,7 @@ class GamesContainer : CoroutineVerticle() {
     val eventBus = vertx.eventBus()
     eventBus.consumer(START_GAME_EVENT, this::startGame)
     eventBus.consumer(STOP_GAME_EVENT, this::stopGame)
+    log.info("${this.javaClass.simpleName} deployed.")
   }
 
   private fun startGame(msg: Message<Buffer>) {
@@ -34,11 +39,16 @@ class GamesContainer : CoroutineVerticle() {
       Player("1", startGameRequest.userName)
     )
     games[game.id] = game
+    log.info("New game was started with id=${game.id} by ${startGameRequest.userName}")
     msg.reply(Json.encodeToBuffer(game))
   }
 
   private fun stopGame(msg: Message<Long>) {
-    val removedElement = games.remove(msg.body())
-    msg.reply(removedElement != null)
+    val gameId = msg.body()
+    val removedElement = games.remove(gameId) != null
+    if (removedElement) {
+      log.info("Game $gameId was stopped.")
+    }
+    msg.reply(removedElement)
   }
 }
