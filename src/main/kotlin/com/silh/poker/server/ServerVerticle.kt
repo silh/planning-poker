@@ -9,8 +9,11 @@ import io.vertx.core.buffer.Buffer
 import io.vertx.core.logging.LoggerFactory
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
+import io.vertx.ext.web.Router.router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
+import io.vertx.ext.web.handler.sockjs.BridgeOptions
+import io.vertx.ext.web.handler.sockjs.SockJSHandler
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.core.http.listenAwait
@@ -66,7 +69,7 @@ class ServerVerticle : CoroutineVerticle() {
   }
 
   private fun getRouter(): Router {
-    val apiRouter = Router.router(vertx)
+    val apiRouter = router(vertx)
 
     apiRouter.post("/game")
       .consumes(APPLICATION_JSON)
@@ -78,8 +81,24 @@ class ServerVerticle : CoroutineVerticle() {
       .handler(BodyHandler.create())
       .coroutineHandler(this::handleStopGame)
 
-    return Router
-      .router(vertx)
+    val sockJsHandler = SockJSHandler.create(vertx)
+    val sockJsRouter = sockJsHandler.bridge(BridgeOptions())
+//    { event ->
+//      when (event.type()) {
+//        BridgeEventType.SOCKET_CREATED -> log.debug("New socket created.")
+//        BridgeEventType.SOCKET_CLOSED -> log.debug("Socket closed")
+//        BridgeEventType.RECEIVE -> {
+//
+//        }
+//        else -> {}
+//      }
+//    }
+//    sockJsRouter
+//      .get()
+//      .handler(sockJsHandler)
+
+    return router(vertx)
       .mountSubRouter("/api", apiRouter)
+      .mountSubRouter("/events", sockJsRouter)
   }
 }
