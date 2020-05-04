@@ -6,7 +6,6 @@ import com.silh.poker.game.START_GAME_EVENT
 import com.silh.poker.game.STOP_GAME_EVENT
 import io.vertx.core.Launcher
 import io.vertx.core.buffer.Buffer
-import io.vertx.core.eventbus.EventBus
 import io.vertx.core.json.Json
 import io.vertx.core.logging.LoggerFactory
 import io.vertx.ext.web.Route
@@ -22,12 +21,14 @@ import kotlinx.coroutines.launch
 
 const val APPLICATION_JSON = "application/json;"
 
+/**
+ * Run app from and IDE.
+ */
 fun main() {
   Launcher.executeCommand("run", MainVerticle::class.java.name)
 }
 
 class MainVerticle : CoroutineVerticle() {
-
   private val log = LoggerFactory.getLogger(MainVerticle::class.java)
 
   override suspend fun start() {
@@ -47,16 +48,21 @@ class MainVerticle : CoroutineVerticle() {
   }
 
   private suspend fun handleStartGame(ctx: RoutingContext) {
-    val msgGameBuffer = eventBus().requestAwait<Buffer>(START_GAME_EVENT, ctx.body)
+    val msg = eventBus().requestAwait<Buffer>(START_GAME_EVENT, ctx.body)
     ctx.response()
       .putHeader("Content-Type", APPLICATION_JSON)
-      .end(msgGameBuffer.body())
+      .end(msg.body())
   }
 
   private suspend fun handleStopGame(ctx: RoutingContext) {
-    eventBus().requestAwait<Unit>(STOP_GAME_EVENT, "1".toBuffer())
+    val msg = eventBus().requestAwait<Boolean>(STOP_GAME_EVENT, ctx.pathParamLong("id"))
+    val responseCode = if (msg.body()) {
+      204
+    } else {
+      404
+    }
     ctx.response()
-      .setStatusCode(204)
+      .setStatusCode(responseCode)
       .end()
   }
 
@@ -75,13 +81,13 @@ class MainVerticle : CoroutineVerticle() {
   private fun getRouter(): Router {
     val apiRouter = Router.router(vertx)
 
-    apiRouter.post("/game/start")
+    apiRouter.post("/game")
       .consumes(APPLICATION_JSON)
       .produces(APPLICATION_JSON)
       .handler(BodyHandler.create())
       .coroutineHandler(this::handleStartGame)
 
-    apiRouter.delete("/game/stop")
+    apiRouter.delete("/game/:id")
       .handler(BodyHandler.create())
       .coroutineHandler(this::handleStopGame)
 
@@ -94,8 +100,4 @@ class MainVerticle : CoroutineVerticle() {
   private fun addJsonKotlinModule() {
     Json.mapper.registerModule(KotlinModule())
   }
-}
-
-fun CoroutineVerticle.eventBus(): EventBus {
-  return this.vertx.eventBus()
 }

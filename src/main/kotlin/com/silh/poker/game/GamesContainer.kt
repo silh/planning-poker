@@ -7,14 +7,17 @@ import io.vertx.kotlin.coroutines.CoroutineVerticle
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
-const val START_GAME_EVENT = "start-game"
+const val START_GAME_EVENT = "start-game" // Expects Buffer
 const val STOP_GAME_EVENT = "stop-game"
 
 /**
  * GamesContainer is responsible for starting new games, storing all running games and stopping games.
+ * Following consumers are present:
+ * @see START_GAME_EVENT - expects Buffer of StartGameRequest, returns Buffer of Game
+ * @see STOP_GAME_EVENT - expects Long which represents ID of the game that should be deleted,
+ * returns "true" if game was successfully deleted, "false" if there was no game with such ID.
  */
 class GamesContainer : CoroutineVerticle() {
-
   private val games = ConcurrentHashMap<Long, Game>()
   private val idGenerator = AtomicLong()
 
@@ -34,7 +37,8 @@ class GamesContainer : CoroutineVerticle() {
     msg.reply(Json.encodeToBuffer(game))
   }
 
-  private fun stopGame(msg: Message<Buffer>) {
-    games.remove(msg.body().toString().toLong())
+  private fun stopGame(msg: Message<Long>) {
+    val removedElement = games.remove(msg.body())
+    msg.reply(removedElement != null)
   }
 }
