@@ -33,6 +33,7 @@ internal class GamesHandlerVerticleTest {
   internal fun startUpdateStopGame(vertx: Vertx, testContext: VertxTestContext) {
     val updateCheckpoint = testContext.checkpoint(4)
     val deleteGameCheckpoint = testContext.checkpoint()
+    val deletedGameCheckpoint = testContext.checkpoint()
 
     val eb = vertx.eventBus()
     val creatorName = "someone"
@@ -77,12 +78,15 @@ internal class GamesHandlerVerticleTest {
           }
         }
       }
+      eb.consumer<Any>(GAME_STOPPED_EVENT + startedGame.id) {
+        deletedGameCheckpoint.flag()
+      }
       val addPlayerPath = ADD_PLAYER_EVENT + startedGame.id
-      eb.send(addPlayerPath, Json.encodeToBuffer(AddPlayerRequest(firstPlayer)))
-      eb.send(addPlayerPath, Json.encodeToBuffer(AddPlayerRequest(secondPlayer)))
+      eb.send(addPlayerPath, Json.encodeToBuffer(firstPlayer))
+      eb.send(addPlayerPath, Json.encodeToBuffer(secondPlayer))
       val removePlayerPath = REMOVE_PLAYER_EVENT + startedGame.id
-      eb.send(removePlayerPath, Json.encodeToBuffer(AddPlayerRequest(firstPlayer)))
-      eb.send(removePlayerPath, Json.encodeToBuffer(AddPlayerRequest(secondPlayer)))
+      eb.send(removePlayerPath, Json.encodeToBuffer(firstPlayer))
+      eb.send(removePlayerPath, Json.encodeToBuffer(secondPlayer))
     }
   }
 }

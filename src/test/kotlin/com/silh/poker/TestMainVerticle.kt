@@ -3,11 +3,17 @@ package com.silh.poker
 import com.silh.poker.game.Game
 import com.silh.poker.game.Player
 import com.silh.poker.game.StartGameRequest
+import com.silh.poker.server.ActionType
+import com.silh.poker.server.GameUpdatedWsMessage
+import com.silh.poker.server.UpdateWsMessage
 import io.vertx.core.Vertx
 import io.vertx.core.json.Json
 import io.vertx.ext.web.client.WebClient
+import io.vertx.junit5.Timeout
 import io.vertx.junit5.VertxExtension
 import io.vertx.junit5.VertxTestContext
+import io.vertx.kotlin.core.http.httpClientOptionsOf
+import io.vertx.kotlin.core.http.webSocketAwait
 import io.vertx.kotlin.ext.web.client.sendAwait
 import io.vertx.kotlin.ext.web.client.sendJsonAwait
 import io.vertx.kotlin.ext.web.client.webClientOptionsOf
@@ -15,6 +21,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @ExtendWith(VertxExtension::class)
 class TestMainVerticle {
@@ -25,12 +33,12 @@ class TestMainVerticle {
   }
 
   @Test
-  fun verticleDeployed(vertx: Vertx, testContext: VertxTestContext) {
+  fun verticleDeployed(testContext: VertxTestContext) {
     testContext.completeNow()
   }
 
   @Test
-  fun startGameRoute(vertx: Vertx, testContext: VertxTestContext) {
+  fun startGame(vertx: Vertx, testContext: VertxTestContext) {
     val creatorName = "someone"
     val expectedCreator = Player("1", creatorName)
     val expectedGame = Game(0L, expectedCreator)
@@ -46,7 +54,7 @@ class TestMainVerticle {
   }
 
   @Test
-  fun stopGameRoute(vertx: Vertx, testContext: VertxTestContext) {
+  fun stopGame(vertx: Vertx, testContext: VertxTestContext) {
     val creatorName = "someone"
     val expectedCreator = Player("1", creatorName)
     val expectedGame = Game(0L, expectedCreator)
@@ -72,7 +80,7 @@ class TestMainVerticle {
   }
 
   @Test
-  fun stopGameRouteGameNotFound(vertx: Vertx, testContext: VertxTestContext) {
+  fun stopGameGameNotFound(vertx: Vertx, testContext: VertxTestContext) {
     testContext.verifyBlocking {
       // Now delete the game
       val deleteResponse = getWebClient(vertx)
@@ -80,6 +88,99 @@ class TestMainVerticle {
         .sendAwait()
       assertThat(deleteResponse.statusCode()).isEqualTo(404)
       testContext.completeNow()
+    }
+  }
+
+  @Test
+  fun stopGameIdIsNotLong(vertx: Vertx, testContext: VertxTestContext) {
+    testContext.verifyBlocking {
+      // Now delete the game
+      val deleteResponse = getWebClient(vertx)
+        .delete("/api/game/aaaa")
+        .sendAwait()
+      assertThat(deleteResponse.statusCode()).isEqualTo(400)
+      testContext.completeNow()
+    }
+  }
+
+  @Test
+  @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+  fun canReceiveGameUpdatesAfterConnecting(vertx: Vertx, testContext: VertxTestContext) {
+    val receivedGameUpdate = testContext.checkpoint(3)
+
+    val creatorName = "someperson"
+    testContext.verifyBlocking {
+      // Create a game
+      val webClient = getWebClient(vertx)
+      val response = webClient
+        .post("/api/game")
+        .sendJsonAwait(StartGameRequest(creatorName))
+      assertThat(response.statusCode()).isEqualTo(200)
+
+      val game = Json.decodeValue(response.body(), Game::class.java)
+      val httpClient = vertx.createHttpClient(httpClientOptionsOf(defaultPort = 8080, defaultHost = "localhost"))
+
+      //Set-up ws connection and handler
+      val firstPlayer = Player("first", "firstPlayer")
+      val secondPlayer = Player("second", "secondPlayer")
+      val ws = httpClient.webSocketAwait("/events")
+      val counter = AtomicInteger()
+      ws.textMessageHandler { msg ->
+        // Check updates
+        testContext.verify {
+          when (counter.getAndIncrement()) {
+            // First should be an "add player"
+            0 -> {
+              val expectedUpdatedGame = Game(
+                id = game.id,
+                creator = game.creator
+              ).apply { participants.add(firstPlayer) }
+
+              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
+              assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
+
+              receivedGameUpdate.flag()
+            }
+            // First should be an "add player"
+            1 -> {
+              val expectedUpdatedGame = Game(
+                id = game.id,
+                creator = game.creator
+              ).apply { participants.addAll(listOf(firstPlayer, secondPlayer)) }
+
+              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
+              assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
+
+              receivedGameUpdate.flag()
+            }
+            // Third should be "remove player"
+            2 -> {
+              val expectedUpdatedGame = Game(
+                id = game.id,
+                creator = game.creator
+              ).apply {
+                participants.add(firstPlayer)
+              }
+              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
+              assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
+
+              receivedGameUpdate.flag()
+            }
+            else -> throw RuntimeException("unexpected update")
+          }
+        }
+      }
+      //Try to add a player
+      var updateGameWsMessage = UpdateWsMessage(game.id, ActionType.ADD, firstPlayer)
+      ws.writeTextMessage(Json.encode(updateGameWsMessage))
+
+      //Try to add second player with another WS connection
+      val ws2 = httpClient.webSocketAwait("/events")
+      updateGameWsMessage = UpdateWsMessage(game.id, ActionType.ADD, secondPlayer)
+      ws2.writeTextMessage(Json.encode(updateGameWsMessage))
+      // Try to remove second player with second WS connection
+      updateGameWsMessage = UpdateWsMessage(game.id, ActionType.DELETE, secondPlayer)
+      ws2.writeTextMessage(Json.encode(updateGameWsMessage))
     }
   }
 

@@ -3,6 +3,7 @@ package com.silh.poker
 import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.silh.poker.game.GamesHandlerVerticle
 import com.silh.poker.server.ServerVerticle
+import io.netty.handler.logging.LogLevel
 import io.vertx.core.Launcher
 import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.core.logging.LoggerFactory

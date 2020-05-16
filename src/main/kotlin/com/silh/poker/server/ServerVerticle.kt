@@ -4,16 +4,15 @@ import com.silh.poker.APPLICATION_JSON
 import com.silh.poker.eventBus
 import com.silh.poker.game.START_GAME_EVENT
 import com.silh.poker.game.STOP_GAME_EVENT
-import com.silh.poker.pathParamLong
+import io.vertx.core.Handler
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.http.ServerWebSocket
 import io.vertx.core.logging.LoggerFactory
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.Router.router
 import io.vertx.ext.web.RoutingContext
 import io.vertx.ext.web.handler.BodyHandler
-import io.vertx.ext.web.handler.sockjs.BridgeOptions
-import io.vertx.ext.web.handler.sockjs.SockJSHandler
 import io.vertx.kotlin.core.eventbus.requestAwait
 import io.vertx.kotlin.core.http.httpServerOptionsOf
 import io.vertx.kotlin.core.http.listenAwait
@@ -27,14 +26,43 @@ class ServerVerticle : CoroutineVerticle() {
 
   private val log = LoggerFactory.getLogger(ServerVerticle::class.java)
 
+  private lateinit var wsHandler: Handler<ServerWebSocket>
+
   override suspend fun start() {
+    wsHandler = WsHandler(vertx)
     val serverOptions = httpServerOptionsOf(
       port = 8080
     )
     vertx.createHttpServer(serverOptions)
-      .requestHandler(getRouter())
+      .requestHandler(apiRouter())
       .listenAwait()
     log.info("HTTP server started on port ${serverOptions.port}")
+  }
+
+  private fun apiRouter(): Router {
+    val apiRouter = router(vertx)
+
+    apiRouter.post("/game")
+      .consumes(APPLICATION_JSON)
+      .produces(APPLICATION_JSON)
+      .handler(BodyHandler.create())
+      .coroutineHandler(this::handleStartGame)
+
+    apiRouter.delete("/game/:id")
+      .handler(BodyHandler.create())
+      .coroutineHandler(this::handleStopGame)
+
+    val wsRouter = router(vertx)
+    wsRouter
+      .get()
+      .safeHandler { ctx: RoutingContext ->
+        val upgraded = ctx.request().upgrade()
+        wsHandler.handle(upgraded)
+      }
+
+    return router(vertx)
+      .mountSubRouter("/api", apiRouter)
+      .mountSubRouter("/events", wsRouter)
   }
 
   private suspend fun handleStartGame(ctx: RoutingContext) {
@@ -45,12 +73,14 @@ class ServerVerticle : CoroutineVerticle() {
   }
 
   private suspend fun handleStopGame(ctx: RoutingContext) {
-    val msg = eventBus().requestAwait<Boolean>(STOP_GAME_EVENT, ctx.pathParamLong("id"))
-    val responseCode = if (msg.body()) {
-      204
-    } else {
-      404
+    val idString = ctx.pathParam("id")
+    val id = idString.toLongOrNull()
+    if (id == null) {
+      ctx.fail(400)
+      return
     }
+    val msg = eventBus().requestAwait<Boolean>(STOP_GAME_EVENT, id)
+    val responseCode = if (msg.body()) 204 else 404
     ctx.response()
       .setStatusCode(responseCode)
       .end()
@@ -68,37 +98,13 @@ class ServerVerticle : CoroutineVerticle() {
     }
   }
 
-  private fun getRouter(): Router {
-    val apiRouter = router(vertx)
-
-    apiRouter.post("/game")
-      .consumes(APPLICATION_JSON)
-      .produces(APPLICATION_JSON)
-      .handler(BodyHandler.create())
-      .coroutineHandler(this::handleStartGame)
-
-    apiRouter.delete("/game/:id")
-      .handler(BodyHandler.create())
-      .coroutineHandler(this::handleStopGame)
-
-    val sockJsHandler = SockJSHandler.create(vertx)
-    val sockJsRouter = sockJsHandler.bridge(BridgeOptions())
-//    { event ->
-//      when (event.type()) {
-//        BridgeEventType.SOCKET_CREATED -> log.debug("New socket created.")
-//        BridgeEventType.SOCKET_CLOSED -> log.debug("Socket closed")
-//        BridgeEventType.RECEIVE -> {
-//
-//        }
-//        else -> {}
-//      }
-//    }
-//    sockJsRouter
-//      .get()
-//      .handler(sockJsHandler)
-
-    return router(vertx)
-      .mountSubRouter("/api", apiRouter)
-      .mountSubRouter("/events", sockJsRouter)
+  private fun Route.safeHandler(handler: (RoutingContext) -> Unit): Route {
+    return this.handler { ctx ->
+      try {
+        handler(ctx)
+      } catch (e: Exception) {
+        ctx.fail(e)
+      }
+    }
   }
 }
