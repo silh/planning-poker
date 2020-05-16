@@ -1,11 +1,6 @@
 package com.silh.poker
 
-import com.silh.poker.game.Game
-import com.silh.poker.game.Player
-import com.silh.poker.game.StartGameRequest
-import com.silh.poker.server.ActionType
-import com.silh.poker.server.GameUpdatedWsMessage
-import com.silh.poker.server.UpdateWsMessage
+import com.silh.poker.game.*
 import io.vertx.core.Vertx
 import io.vertx.core.json.Json
 import io.vertx.ext.web.client.WebClient
@@ -131,39 +126,26 @@ class TestMainVerticle {
           when (counter.getAndIncrement()) {
             // First should be an "add player"
             0 -> {
-              val expectedUpdatedGame = Game(
-                id = game.id,
-                creator = game.creator
-              ).apply { participants.add(firstPlayer) }
+              val expectedUpdatedGame = Game(game.id, game.creator, mutableListOf(firstPlayer))
 
-              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
+              val updatedGame = Json.decodeValue(msg, GameUpdatedMessage::class.java)
               assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
-
               receivedGameUpdate.flag()
             }
-            // First should be an "add player"
+            // Then another "add player"
             1 -> {
-              val expectedUpdatedGame = Game(
-                id = game.id,
-                creator = game.creator
-              ).apply { participants.addAll(listOf(firstPlayer, secondPlayer)) }
+              val expectedUpdatedGame = Game(game.id, game.creator, mutableListOf(firstPlayer, secondPlayer))
 
-              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
+              val updatedGame = Json.decodeValue(msg, GameUpdatedMessage::class.java)
               assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
-
               receivedGameUpdate.flag()
             }
             // Third should be "remove player"
             2 -> {
-              val expectedUpdatedGame = Game(
-                id = game.id,
-                creator = game.creator
-              ).apply {
-                participants.add(firstPlayer)
-              }
-              val updatedGame = Json.decodeValue(msg, GameUpdatedWsMessage::class.java)
-              assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
+              val expectedUpdatedGame = Game(game.id, game.creator, mutableListOf(firstPlayer))
 
+              val updatedGame = Json.decodeValue(msg, GameUpdatedMessage::class.java)
+              assertThat(updatedGame.game).isEqualTo(expectedUpdatedGame)
               receivedGameUpdate.flag()
             }
             else -> throw RuntimeException("unexpected update")
@@ -171,15 +153,15 @@ class TestMainVerticle {
         }
       }
       //Try to add a player
-      var updateGameWsMessage = UpdateWsMessage(game.id, ActionType.ADD, firstPlayer)
+      var updateGameWsMessage = UpdateGameRequest(game.id, RequestUpdateGameActionType.ADD, firstPlayer)
       ws.writeTextMessage(Json.encode(updateGameWsMessage))
 
       //Try to add second player with another WS connection
       val ws2 = httpClient.webSocketAwait("/events")
-      updateGameWsMessage = UpdateWsMessage(game.id, ActionType.ADD, secondPlayer)
+      updateGameWsMessage = UpdateGameRequest(game.id, RequestUpdateGameActionType.ADD, secondPlayer)
       ws2.writeTextMessage(Json.encode(updateGameWsMessage))
       // Try to remove second player with second WS connection
-      updateGameWsMessage = UpdateWsMessage(game.id, ActionType.DELETE, secondPlayer)
+      updateGameWsMessage = UpdateGameRequest(game.id, RequestUpdateGameActionType.DELETE, secondPlayer)
       ws2.writeTextMessage(Json.encode(updateGameWsMessage))
     }
   }

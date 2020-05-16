@@ -14,7 +14,6 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 @ExtendWith(VertxExtension::class)
@@ -41,17 +40,31 @@ internal class GamesHandlerVerticleTest {
     val startGameRequest = StartGameRequest(creatorName)
 
     testContext.verifyBlocking {
+      // Check that game with ID 0 doesn't exist yet
+      val zeroGameResult = Json.decodeValue(
+        eb.requestAwait<Buffer>(GET_GAME_EVENT, 0L).body(),
+        Game::class.java
+      )
+      assertThat(zeroGameResult).isNull()
+
       // Start game
       val expectedStartedGame = Game(0L, creator)
       val createGameMsg = eb.requestAwait<Buffer>(START_GAME_EVENT, Json.encodeToBuffer(startGameRequest))
       val startedGame = Json.decodeValue(createGameMsg.body(), Game::class.java)
       assertThat(expectedStartedGame).isEqualTo(startedGame)
 
+      // Verify get request
+      val getGameResult = Json.decodeValue(
+        eb.requestAwait<Buffer>(GET_GAME_EVENT, startedGame.id).body(),
+        Game::class.java
+      )
+      assertThat(getGameResult).isEqualTo(startedGame)
+
       // Update game
       val firstPlayer = Player("first", "1")
       val secondPlayer = Player("second", "2")
       val updateCounter = AtomicInteger()
-      eb.consumer<Buffer>(GAME_UPDATED_EVENT + startedGame.id) { updateMsg ->
+      eb.consumer<Buffer>(GAME_UPDATED_EVENT) { updateMsg ->
         testContext.verifyBlocking {
           val updatedGame = Json.decodeValue(updateMsg.body(), Game::class.java)
           val counterValue = updateCounter.incrementAndGet()
@@ -78,15 +91,20 @@ internal class GamesHandlerVerticleTest {
           }
         }
       }
-      eb.consumer<Any>(GAME_STOPPED_EVENT + startedGame.id) {
-        deletedGameCheckpoint.flag()
+      eb.consumer<Any>(GAME_STOPPED_EVENT) { msg ->
+        testContext.verify {
+          assertThat(msg.body()).isEqualTo(startedGame.id)
+          deletedGameCheckpoint.flag()
+        }
       }
-      val addPlayerPath = ADD_PLAYER_EVENT + startedGame.id
-      eb.send(addPlayerPath, Json.encodeToBuffer(firstPlayer))
-      eb.send(addPlayerPath, Json.encodeToBuffer(secondPlayer))
-      val removePlayerPath = REMOVE_PLAYER_EVENT + startedGame.id
-      eb.send(removePlayerPath, Json.encodeToBuffer(firstPlayer))
-      eb.send(removePlayerPath, Json.encodeToBuffer(secondPlayer))
+      val addPlayerReq1 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.ADD, firstPlayer)
+      val addPlayerReq2 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.ADD, secondPlayer)
+      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq1))
+      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq2))
+      val deletePlayerReq1 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.DELETE, firstPlayer)
+      val deletePlayerReq2 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.DELETE, secondPlayer)
+      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq1))
+      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq2))
     }
   }
 }
