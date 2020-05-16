@@ -5,7 +5,7 @@ data class StartGameRequest(
 )
 
 data class UpdateGameRequest(
-  val gameId: Long,
+  val gameId: String,
   val actionType: RequestUpdateGameActionType,
   val player: Player
 ) {
@@ -27,7 +27,7 @@ enum class RequestUpdateGameActionType {
 }
 
 data class UpdateGameResponse(
-  val gameId: Long,
+  val gameId: String,
   val actionType: ResponseUpdateGameActionType,
   val player: Player
 )
@@ -39,6 +39,6 @@ enum class ResponseUpdateGameActionType {
 }
 
 data class GameUpdatedMessage(
-  val gameId: Long,
+  val gameId: String,
   val game: Game
 )

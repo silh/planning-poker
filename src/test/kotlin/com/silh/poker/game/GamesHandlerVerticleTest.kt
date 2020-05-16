@@ -40,18 +40,11 @@ internal class GamesHandlerVerticleTest {
     val startGameRequest = StartGameRequest(creatorName)
 
     testContext.verifyBlocking {
-      // Check that game with ID 0 doesn't exist yet
-      val zeroGameResult = Json.decodeValue(
-        eb.requestAwait<Buffer>(GET_GAME_EVENT, 0L).body(),
-        Game::class.java
-      )
-      assertThat(zeroGameResult).isNull()
-
       // Start game
-      val expectedStartedGame = Game(0L, creator)
+      val expectedStartedGame = Game("can't know the id before hand", creator)
       val createGameMsg = eb.requestAwait<Buffer>(START_GAME_EVENT, Json.encodeToBuffer(startGameRequest))
       val startedGame = Json.decodeValue(createGameMsg.body(), Game::class.java)
-      assertThat(expectedStartedGame).isEqualTo(startedGame)
+      assertThat(expectedStartedGame.creator).isEqualTo(startedGame.creator)
 
       // Verify get request
       val getGameResult = Json.decodeValue(
@@ -105,6 +98,18 @@ internal class GamesHandlerVerticleTest {
       val deletePlayerReq2 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.DELETE, secondPlayer)
       eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq1))
       eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq2))
+    }
+  }
+
+  @Test
+  internal fun `get returns null if game doesn't exist`(vertx: Vertx, testContext: VertxTestContext) {
+    val eb = vertx.eventBus()
+    testContext.verifyBlocking {
+      // Check that game with ID 0 doesn't exist yet
+      val respBody = eb.requestAwait<Buffer>(GET_GAME_EVENT, "some string").body()
+      val zeroGameResult = Json.decodeValue(respBody, Game::class.java)
+      assertThat(zeroGameResult).isNull()
+      testContext.completeNow()
     }
   }
 }

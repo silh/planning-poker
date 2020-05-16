@@ -27,7 +27,7 @@ class WsHandler(private val vertx: Vertx) : Handler<ServerWebSocket> {
 
   // List of observers for each game
   // TODO each observer can have multiple sockets - need to change to a map with session id
-  private val observers = ConcurrentHashMap<Long, MutableMap<String, ServerWebSocket>>()
+  private val observers = ConcurrentHashMap<String, MutableMap<String, ServerWebSocket>>()
 
   private val pingPeriod = 10L
 
@@ -92,8 +92,8 @@ class WsHandler(private val vertx: Vertx) : Handler<ServerWebSocket> {
     }
   }
 
-  private fun handleGameStoppedNotification(msg: Message<Long>) {
-    val gameId: Long = msg.body()
+  private fun handleGameStoppedNotification(msg: Message<String>) {
+    val gameId: String = msg.body()
     val game = observers.remove(gameId)
     if (game != null) {
       log.info("Stopped sending notifications for everyone in game $gameId")

@@ -36,14 +36,16 @@ class TestMainVerticle {
   fun startGame(vertx: Vertx, testContext: VertxTestContext) {
     val creatorName = "someone"
     val expectedCreator = Player("1", creatorName)
-    val expectedGame = Game(0L, expectedCreator)
+    val expectedGame = Game("can't know the id beforehand", expectedCreator)
     testContext.verifyBlocking {
       val response = getWebClient(vertx)
         .post("/api/game")
         .sendJsonAwait(StartGameRequest(creatorName))
       assertThat(response.statusCode()).isEqualTo(200)
 
-      assertThat(Json.decodeValue(response.body(), Game::class.java)).isEqualTo(expectedGame)
+      val createdGame = Json.decodeValue(response.body(), Game::class.java)
+      assertThat(expectedGame).isNotNull
+      assertThat(expectedGame.creator).isEqualTo(createdGame.creator)
       testContext.completeNow()
     }
   }
@@ -52,7 +54,7 @@ class TestMainVerticle {
   fun stopGame(vertx: Vertx, testContext: VertxTestContext) {
     val creatorName = "someone"
     val expectedCreator = Player("1", creatorName)
-    val expectedGame = Game(0L, expectedCreator)
+    val expectedGame = Game("someId", expectedCreator)
     val webClient = getWebClient(vertx)
     testContext.verifyBlocking {
       // First - create a game
@@ -63,13 +65,13 @@ class TestMainVerticle {
 
       val body = createResponse.body()
       val game = Json.decodeValue(body, Game::class.java)
-      assertThat(game).isEqualTo(expectedGame)
+      assertThat(game.creator).isEqualTo(expectedGame.creator)
 
       // Now delete the game
       val deleteResponse = webClient
         .delete("/api/game/${game?.id}")
         .sendAwait()
-      assertThat(deleteResponse.statusCode()).isEqualTo(204)
+      assertThat(204).isEqualTo(deleteResponse.statusCode())
       testContext.completeNow()
     }
   }
@@ -79,21 +81,9 @@ class TestMainVerticle {
     testContext.verifyBlocking {
       // Now delete the game
       val deleteResponse = getWebClient(vertx)
-        .delete("/api/game/0")
+        .delete("/api/game/someId")
         .sendAwait()
       assertThat(deleteResponse.statusCode()).isEqualTo(404)
-      testContext.completeNow()
-    }
-  }
-
-  @Test
-  fun stopGameIdIsNotLong(vertx: Vertx, testContext: VertxTestContext) {
-    testContext.verifyBlocking {
-      // Now delete the game
-      val deleteResponse = getWebClient(vertx)
-        .delete("/api/game/aaaa")
-        .sendAwait()
-      assertThat(deleteResponse.statusCode()).isEqualTo(400)
       testContext.completeNow()
     }
   }

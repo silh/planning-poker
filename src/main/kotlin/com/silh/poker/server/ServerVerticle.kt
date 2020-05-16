@@ -74,12 +74,7 @@ class ServerVerticle : CoroutineVerticle() {
 
   private suspend fun handleStopGame(ctx: RoutingContext) {
     val idString = ctx.pathParam("id")
-    val id = idString.toLongOrNull()
-    if (id == null) {
-      ctx.fail(400)
-      return
-    }
-    val msg = eventBus().requestAwait<Boolean>(STOP_GAME_EVENT, id)
+    val msg = eventBus().requestAwait<Boolean>(STOP_GAME_EVENT, idString)
     val responseCode = if (msg.body()) 204 else 404
     ctx.response()
       .setStatusCode(responseCode)
