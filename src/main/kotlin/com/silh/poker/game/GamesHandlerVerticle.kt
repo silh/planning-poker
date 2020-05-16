@@ -70,7 +70,7 @@ class GamesHandlerVerticle : CoroutineVerticle() {
       Json.decodeValue(msg.body(), UpdateGameRequest::class.java)
     } catch (e: Exception) {
       log.warn(e.message)
-      return msg.fail(1, e.message)
+      return msg.fail(400, e.message)
     }
     val game = when (req.actionType) {
       RequestUpdateGameActionType.ADD -> addPlayer(req.gameId, req.player)

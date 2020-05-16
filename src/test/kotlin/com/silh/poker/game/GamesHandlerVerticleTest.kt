@@ -4,15 +4,18 @@ import com.fasterxml.jackson.module.kotlin.KotlinModule
 import com.silh.poker.verifyBlocking
 import io.vertx.core.Vertx
 import io.vertx.core.buffer.Buffer
+import io.vertx.core.eventbus.ReplyException
 import io.vertx.core.json.Json
 import io.vertx.core.json.jackson.DatabindCodec
 import io.vertx.junit5.VertxExtension
 import io.vertx.junit5.VertxTestContext
 import io.vertx.kotlin.core.deployVerticleAwait
 import io.vertx.kotlin.core.eventbus.requestAwait
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.extension.ExtendWith
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -91,13 +94,20 @@ internal class GamesHandlerVerticleTest {
         }
       }
       val addPlayerReq1 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.ADD, firstPlayer)
+      var updatedGame = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq1))
+      assertThat(addPlayerReq1.toResponse()).isEqualTo(updatedGame.body().toUpdateGameResponse())
+
       val addPlayerReq2 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.ADD, secondPlayer)
-      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq1))
-      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq2))
+      updatedGame = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq2))
+      assertThat(addPlayerReq2.toResponse()).isEqualTo(updatedGame.body().toUpdateGameResponse())
+
       val deletePlayerReq1 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.DELETE, firstPlayer)
+      updatedGame = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq1))
+      assertThat(deletePlayerReq1.toResponse()).isEqualTo(updatedGame.body().toUpdateGameResponse())
+
       val deletePlayerReq2 = UpdateGameRequest(startedGame.id, RequestUpdateGameActionType.DELETE, secondPlayer)
-      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq1))
-      eb.send(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq2))
+      updatedGame = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq2))
+      assertThat(deletePlayerReq2.toResponse()).isEqualTo(updatedGame.body().toUpdateGameResponse())
     }
   }
 
@@ -112,4 +122,44 @@ internal class GamesHandlerVerticleTest {
       testContext.completeNow()
     }
   }
+
+  @Test
+  internal fun `can't add player to non-existent game`(vertx: Vertx, testContext: VertxTestContext) {
+    testContext.verifyBlocking {
+      val eb = vertx.eventBus()
+      val addPlayerReq = UpdateGameRequest("some id", RequestUpdateGameActionType.ADD, Player("1", "1"))
+      val expectedResponse = addPlayerReq.toResponse(ResponseUpdateGameActionType.NOT_FOUND)
+      val response = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(addPlayerReq))
+      assertThat(expectedResponse).isEqualTo(response.body().toUpdateGameResponse())
+      testContext.completeNow()
+    }
+  }
+
+  @Test
+  internal fun `can't delete player from non-existent game`(vertx: Vertx, testContext: VertxTestContext) {
+    testContext.verifyBlocking {
+      val eb = vertx.eventBus()
+      val deletePlayerReq = UpdateGameRequest("some id", RequestUpdateGameActionType.DELETE, Player("1", "1"))
+      val expectedResponse = deletePlayerReq.toResponse(ResponseUpdateGameActionType.NOT_FOUND)
+      val response = eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Json.encodeToBuffer(deletePlayerReq))
+      assertThat(expectedResponse).isEqualTo(response.body().toUpdateGameResponse())
+      testContext.completeNow()
+    }
+  }
+
+  @Test
+  internal fun `incorrect body fails the message`(vertx: Vertx, testContext: VertxTestContext) {
+    testContext.verifyBlocking {
+      val eb = vertx.eventBus()
+      val exception = assertThrows<ReplyException> {
+        runBlocking { eb.requestAwait<Buffer>(UPDATE_GAME_EVENT, Buffer.buffer("something")) }
+      }
+      assertThat(exception.failureCode()).isEqualTo(400)
+      testContext.completeNow()
+    }
+  }
+
+  private fun Buffer.toUpdateGameResponse(): UpdateGameResponse = this.toPojo(UpdateGameResponse::class.java)
+
+  private fun <T : Any> Buffer.toPojo(clazz: Class<T>): T = Json.decodeValue(this, clazz)
 }
